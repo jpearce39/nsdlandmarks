@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NSD Search — Nearest Landmarks Finder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --bg: #e7e8e9;
+    --bg-deep: #e7e8e9;
+    --panel: #637d59;
+    --panel-soft: #637d59;
+    --line: #231f20;
+    --line-soft: rgba(111,168,216,0.22);
+    --text: #231f20;
+    --text-dim: #231f20;
+    --text-faint: #231f20;
+    --accent: #e7e8e9;
+    --accent2: #637d59;
+    --accent-dim: rgba(232,163,61,0.35);
+
+    --c-school: #5fc9c9;
+    --c-station: #e8a33d;
+    --c-mall: #c58fe0;
+    --c-church: #e8899f;
+    --c-park: #6fcb6f;
+
+    --radius: 3px;
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background:
+      /*linear-gradient(var(--line-soft) 1px, transparent 1px) 0 0 / 28px 28px,
+      linear-gradient(90deg, var(--line-soft) 1px, transparent 1px) 0 0 / 28px 28px,*/
+      var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    min-height: 100vh;
+  }
+
+  h1,h2,h3, .display{
+    font-family: 'Space Grotesk', sans-serif;
+  }
+
+  a{ color: var(--accent); }
+
+  /* ---------- Header / Instrument panel ---------- */
+  .masthead{
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--bg-deep), var(--bg));
+    padding: 22px clamp(14px, 4vw, 40px) 18px;
+  }
+  .masthead-inner{
+    max-width: 1180px;
+    margin: 0 auto;
+    display:flex;
+    align-items:center;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .brand{
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+  }
+  .brand h1{
+    font-size: clamp(22px, 3.4vw, 30px);
+    margin:0;
+    font-weight: 700;
+    letter-spacing: .01em;
+  }
+  .brand h1 .accent{ color: var(--accent); }
+  .brand h1 .accent2{ color: var(--accent2); }
+
+  .search-wrap{
+    margin: 20px auto 0;
+    max-width: 1180px;
+  }
+  form.search{
+    display:flex;
+    gap:10px;
+    flex-wrap: wrap;
+  }
+  .search input[type=text]{
+    flex: 1 1 320px;
+    background: var(--panel-soft);
+    border: 1px solid var(--line);
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 15px;
+    padding: 13px 14px;
+    border-radius: var(--radius);
+    outline: none;
+  }
+  .search input[type=text]::placeholder{ color: var(--text-faint); }
+  .search input[type=text]:focus{
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+  }
+  .search button{
+    background: var(--accent);
+    color: var(--bg-deep);
+    border: none;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    padding: 0 24px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: transform .12s ease, background .12s ease;
+  }
+  .search button:hover{ background: #f3b658; }
+  .search button:active{ transform: translateY(1px); }
+  .search button:disabled{ background: var(--text-faint); cursor: progress; }
+  .search button:focus-visible, .search input:focus-visible, .chip:focus-visible{
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .filters{
+    display:flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+  .chip{
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 6px 14px 6px 11px;
+    cursor: pointer;
+    display:flex;
+    align-items:center;
+    gap:7px;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+  }
+  .chip::before{
+    content:'';
+    width:8px; height:8px; border-radius:50%;
+    background: var(--c);
+    opacity: .4;
+  }
+  .chip.active{
+    color: var(--text);
+    border-color: var(--c);
+    background: var(--panel-soft);
+  }
+  .chip.active::before{ opacity: 1; }
+  .chip:hover{ color: var(--text); }
+
+  .status-line{
+    margin-top: 12px;
+    font-size: 13px;
+    min-height: 18px;
+    color: var(--text-dim);
+  }
+  .status-line.error{ color: var(--c-church); }
+
+  /* ---------- Layout ---------- */
+  .stage{
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: clamp(16px, 3vw, 34px);
+  }
+
+  .compass-layout{
+    display: grid;
+    grid-template-columns: minmax(220px,1fr) minmax(280px,2fr) minmax(220px,1fr);
+    grid-template-rows: auto auto auto;
+    grid-template-areas:
+      ".    n    ."
+      "w    map  e"
+      ".    s    .";
+    gap: 14px;
+  }
+  .dir-panel{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    display:flex;
+    flex-direction:column;
+    min-height: 200px;
+    max-height: 460px;
+  }
+  .dir-panel.n{ grid-area: n; }
+  .dir-panel.e{ grid-area: e; }
+  .dir-panel.s{ grid-area: s; }
+  .dir-panel.w{ grid-area: w; }
+
+  .panel-head{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel-soft);
+  }
+  .panel-head .dir-letter{
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:700;
+    font-size: 20px;
+    color: var(--accent);
+    letter-spacing: .05em;
+  }
+  .panel-head .dir-name{
+    font-size: 10px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .panel-head .count{
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .poi-list{
+    list-style:none;
+    margin:0; padding: 6px 0;
+    overflow-y:auto;
+  }
+  .poi-list li{
+    display:flex;
+    align-items:flex-start;
+    gap: 9px;
+    padding: 7px 14px;
+    border-bottom: 1px dashed var(--line-soft);
+    font-size: 12.5px;
+    line-height:1.35;
+  }
+  .poi-list li:last-child{ border-bottom:none; }
+  .poi-badge{
+    flex: none;
+    width: 18px; height:18px;
+    border-radius:4px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:10px; font-weight:700;
+    color: var(--bg-deep);
+    margin-top: 1px;
+  }
+  .poi-info{ flex:1; min-width:0; }
+  .poi-name{
+    color: var(--text);
+    display:block;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .poi-meta{
+    color: var(--text-faint);
+    font-size: 11px;
+  }
+  .poi-list .empty{
+    padding: 14px;
+    color: var(--text-faint);
+    font-size:12px;
+    font-style: italic;
+    border-bottom:none;
+  }
+
+  .map-center{
+    grid-area: map;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow:hidden;
+    min-height: 320px;
+    position: relative;
+    background: var(--panel-soft);
+  }
+  #map{ position:absolute; inset:0; }
+  .map-placeholder{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    color: var(--text-faint);
+    font-size: 13px;
+    text-align:center;
+    padding: 20px;
+  }
+
+  footer{
+    max-width:1180px;
+    margin: 10px auto 40px;
+    padding: 0 clamp(14px,3vw,34px);
+    color: var(--text-faint);
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  footer a{ color: var(--text-dim); }
+
+  /* legend leaflet popup styling */
+  .leaflet-popup-content-wrapper{
+    background: var(--panel); color: var(--text);
+    border-radius: var(--radius);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .leaflet-popup-tip{ background: var(--panel); }
+  .leaflet-popup-content{ font-size:12.5px; margin: 10px 12px;}
+  .leaflet-container{ background: var(--panel-soft) !important; }
+
+  @media (max-width: 760px){
+    .compass-layout{
+      grid-template-columns: 1fr;
+      grid-template-areas:
+        "map"
+        "n"
+        "e"
+        "s"
+        "w";
+    }
+    .map-center{ min-height: 260px; }
+    .dir-panel{ max-height: 320px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <div class="brand">
+      <h1>NSD<span class="accent2"> Search</span></h1>
+    </div>
+  </div>
+
+  <div class="search-wrap">
+    <form class="search" id="searchForm">
+      <input type="text" id="addressInput" placeholder="Enter an address, e.g. 350 Collins Street, Melbourne" autocomplete="off" />
+      <button type="submit" id="searchBtn">Search</button>
+    </form>
+    <div class="filters" id="filters">
+      <button type="button" class="chip active" data-cat="school" style="--c:var(--c-school)">Schools</button>
+      <button type="button" class="chip active" data-cat="station" style="--c:var(--c-station)">Stations</button>
+      <button type="button" class="chip active" data-cat="mall" style="--c:var(--c-mall)">Shopping</button>
+      <button type="button" class="chip active" data-cat="church" style="--c:var(--c-church)">Churches</button>
+      <button type="button" class="chip active" data-cat="park" style="--c:var(--c-park)">Parks</button>
+    </div>
+    <div class="status-line" id="statusLine">Type an address to locate the ten nearest named landmarks north, east, south and west of it.</div>
+    <div class="status-line error" id="fileWarning" style="display:none">
+      This page is open as a local file (file://), so your browser blocks the OpenStreetMap API requests it needs (CORS). Serve it over HTTP instead — e.g. run <code>python3 -m http.server</code> in this folder and open <code>http://localhost:8000/compass-finder.html</code> — or use it from wherever it was originally hosted.
+    </div>
+  </div>
+</header>
+
+<main class="stage">
+  <div class="compass-layout">
+    <div class="dir-panel n">
+      <div class="panel-head"><span><span class="dir-letter">N</span> <span class="dir-name">North</span></span><span class="count" id="count-n"></span></div>
+      <ul class="poi-list" id="list-n"><li class="empty">No search yet.</li></ul>
+    </div>
+    <div class="dir-panel e">
+      <div class="panel-head"><span><span class="dir-letter">E</span> <span class="dir-name">East</span></span><span class="count" id="count-e"></span></div>
+      <ul class="poi-list" id="list-e"><li class="empty">No search yet.</li></ul>
+    </div>
+    <div class="dir-panel s">
+      <div class="panel-head"><span><span class="dir-letter">S</span> <span class="dir-name">South</span></span><span class="count" id="count-s"></span></div>
+      <ul class="poi-list" id="list-s"><li class="empty">No search yet.</li></ul>
+    </div>
+    <div class="dir-panel w">
+      <div class="panel-head"><span><span class="dir-letter">W</span> <span class="dir-name">West</span></span><span class="count" id="count-w"></span></div>
+      <ul class="poi-list" id="list-w"><li class="empty">No search yet.</li></ul>
+    </div>
+    <div class="map-center">
+      <div id="map"></div>
+      <div class="map-placeholder" id="mapPlaceholder">
+        <span>Map will appear here once an address is located.</span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Geocoding via OpenStreetMap Nominatim · landmark data via Overpass, from OpenStreetMap contributors.
+  Search radius expands automatically (up to 20&nbsp;km) to try to find 10 named landmarks in each direction.
+</footer>
+
+<script>
+(function(){
+  const CATS = {
+    school:  { label: 'School',            color: '#5fc9c9', badge: 'S', query: ['amenity=school'] },
+    station: { label: 'Train station',     color: '#e8a33d', badge: 'T', query: ['railway=station'] },
+    mall:    { label: 'Shopping',          color: '#c58fe0', badge: 'M', query: ['shop=mall', 'shop=supermarket', 'shop=department_store'] },
+    church:  { label: 'Church',            color: '#e8899f', badge: 'C', query: ['amenity=place_of_worship'] },
+    park:    { label: 'Park',              color: '#6fcb6f', badge: 'P', query: ['leisure=park'] }
+  };
+
+  const form = document.getElementById('searchForm');
+  const input = document.getElementById('addressInput');
+  const btn = document.getElementById('searchBtn');
+  const statusLine = document.getElementById('statusLine');
+  const mapPlaceholder = document.getElementById('mapPlaceholder');
+  const filterChips = document.querySelectorAll('#filters .chip');
+
+  let map = null;
+  let markerLayer = null;
+  let lastPois = [];
+  let lastOrigin = null;
+
+  function setStatus(msg, isError){
+    statusLine.textContent = msg;
+    statusLine.classList.toggle('error', !!isError);
+  }
+
+  function setBusy(busy){
+    btn.disabled = busy;
+    btn.textContent = busy ? 'Searching…' : 'Search';
+  }
+
+  // ---------- geo math ----------
+  function toRad(d){ return d * Math.PI / 180; }
+  function toDeg(r){ return r * 180 / Math.PI; }
+
+  function haversineKm(lat1, lon1, lat2, lon2){
+    const R = 6371;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }
+
+  function bearing(lat1, lon1, lat2, lon2){
+    const y = Math.sin(toRad(lon2-lon1)) * Math.cos(toRad(lat2));
+    const x = Math.cos(toRad(lat1))*Math.sin(toRad(lat2)) - Math.sin(toRad(lat1))*Math.cos(toRad(lat2))*Math.cos(toRad(lon2-lon1));
+    return (toDeg(Math.atan2(y, x)) + 360) % 360;
+  }
+
+  function quadrant(deg){
+    if (deg >= 315 || deg < 45) return 'n';
+    if (deg >= 45 && deg < 135) return 'e';
+    if (deg >= 135 && deg < 225) return 's';
+    return 'w';
+  }
+
+  const COMPASS16 = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  function compassLabel(deg){
+    return COMPASS16[Math.round(deg / 22.5) % 16];
+  }
+
+  function formatDistance(km){
+    if (km < 1) return Math.round(km * 1000) + ' m';
+    return km.toFixed(1) + ' km';
+  }
+
+  // ---------- geocoding ----------
+  async function geocode(address){
+    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&addressdetails=1&q=' + encodeURIComponent(address);
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) throw new Error('Geocoding service returned an error.');
+    const data = await res.json();
+    if (!data || !data.length) throw new Error('No matching address found. Try adding a suburb, city or country.');
+    return {
+      lat: parseFloat(data[0].lat),
+      lon: parseFloat(data[0].lon),
+      displayName: data[0].display_name
+    };
+  }
+
+  // ---------- overpass ----------
+  const OVERPASS_ENDPOINTS = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.openstreetmap.ru/api/interpreter',
+    'https://overpass.private.coffee/api/interpreter'
+  ];
+  const ENDPOINT_TIMEOUT_MS = 22000;
+
+  function fetchWithTimeout(url, options, timeoutMs){
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+  }
+
+  function buildQuery(lat, lon, radiusM, activeCats){
+    let clauses = '';
+    activeCats.forEach(catKey => {
+      CATS[catKey].query.forEach(tag => {
+        const [k, v] = tag.split('=');
+        clauses += `node["${k}"="${v}"](around:${radiusM},${lat},${lon});`;
+        clauses += `way["${k}"="${v}"](around:${radiusM},${lat},${lon});`;
+      });
+    });
+    return `[out:json][timeout:25];(${clauses});out center tags;`;
+  }
+
+  async function runOverpass(query, onProgress){
+    let lastErr;
+    for (let i = 0; i < OVERPASS_ENDPOINTS.length; i++){
+      const endpoint = OVERPASS_ENDPOINTS[i];
+      const host = endpoint.replace(/^https?:\/\//, '').split('/')[0];
+      try{
+        if (onProgress) onProgress(`Querying landmark data (${host})…`);
+        const res = await fetchWithTimeout(endpoint, {
+          method: 'POST',
+          body: 'data=' + encodeURIComponent(query)
+        }, ENDPOINT_TIMEOUT_MS);
+        if (!res.ok) throw new Error(host + ' returned status ' + res.status);
+        return await res.json();
+      } catch(e){
+        lastErr = e && e.name === 'AbortError'
+          ? new Error(host + ' timed out')
+          : e;
+      }
+    }
+    if (location.protocol === 'file:'){
+      throw new Error('Could not reach any Overpass mirror. This page is open as a local file, which browsers block from calling these APIs — see the notice above.');
+    }
+    throw new Error((lastErr && lastErr.message ? lastErr.message + '. ' : '') + 'All Overpass mirrors failed — the service may be overloaded. Please try again in a moment.');
+  }
+
+  function tagToCategory(tags){
+    if (!tags) return null;
+    if (tags.amenity === 'school') return 'school';
+    if (tags.railway === 'station') return 'station';
+    if (tags.shop === 'mall' || tags.shop === 'supermarket' || tags.shop === 'department_store') return 'mall';
+    if (tags.amenity === 'place_of_worship') return 'church';
+    if (tags.leisure === 'park') return 'park';
+    return null;
+  }
+
+  function elementsToPois(elements, origin){
+    const seen = new Set();
+    const pois = [];
+    elements.forEach(el => {
+      const tags = el.tags;
+      const name = tags && tags.name;
+      if (!name) return; // only named locations, per key:name
+      const cat = tagToCategory(tags);
+      if (!cat) return;
+      const lat = el.type === 'node' ? el.lat : (el.center && el.center.lat);
+      const lon = el.type === 'node' ? el.lon : (el.center && el.center.lon);
+      if (lat == null || lon == null) return;
+      const dupeKey = cat + '|' + name + '|' + lat.toFixed(4) + '|' + lon.toFixed(4);
+      if (seen.has(dupeKey)) return;
+      seen.add(dupeKey);
+      const dist = haversineKm(origin.lat, origin.lon, lat, lon);
+      const brg = bearing(origin.lat, origin.lon, lat, lon);
+      pois.push({
+        id: (el.type + el.id),
+        name,
+        category: cat,
+        lat, lon,
+        distanceKm: dist,
+        bearingDeg: brg,
+        quadrant: quadrant(brg),
+        compass16: compassLabel(brg)
+      });
+    });
+    return pois;
+  }
+
+  function quadrantCounts(pois){
+    const counts = { n:0, e:0, s:0, w:0 };
+    pois.forEach(p => counts[p.quadrant]++);
+    return counts;
+  }
+
+  async function fetchLandmarks(lat, lon, activeCats, onProgress){
+    let radius = 3000;
+    const maxRadius = 20000;
+    let pois = [];
+    for (let attempt = 0; attempt < 5; attempt++){
+      onProgress(`Searching within ${(radius/1000).toFixed(1)} km…`);
+      const query = buildQuery(lat, lon, radius, activeCats);
+      const json = await runOverpass(query, onProgress);
+      pois = elementsToPois(json.elements || [], { lat, lon });
+      const counts = quadrantCounts(pois);
+      const allSatisfied = counts.n >= 10 && counts.e >= 10 && counts.s >= 10 && counts.w >= 10;
+      if (allSatisfied || radius >= maxRadius) break;
+      radius = Math.min(radius * 2, maxRadius);
+    }
+    return pois;
+  }
+
+  // ---------- rendering ----------
+  function renderLists(pois){
+    ['n','e','s','w'].forEach(dir => {
+      const list = pois.filter(p => p.quadrant === dir).sort((a,b) => a.distanceKm - b.distanceKm).slice(0, 10);
+      const el = document.getElementById('list-' + dir);
+      const countEl = document.getElementById('count-' + dir);
+      countEl.textContent = list.length ? list.length + ' shown' : '';
+      el.innerHTML = '';
+      if (!list.length){
+        el.innerHTML = '<li class="empty">No named landmarks found in this direction.</li>';
+        return;
+      }
+      list.forEach(p => {
+        const li = document.createElement('li');
+        li.innerHTML = `
+          <span class="poi-badge" style="background:${CATS[p.category].color}">${CATS[p.category].badge}</span>
+          <span class="poi-info">
+            <span class="poi-name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span>
+            <span class="poi-meta">${CATS[p.category].label} · ${formatDistance(p.distanceKm)} · ${p.compass16} ${Math.round(p.bearingDeg)}°</span>
+          </span>`;
+        el.appendChild(li);
+      });
+    });
+  }
+
+  function escapeHtml(str){
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  function ensureMap(){
+    if (map) return map;
+    mapPlaceholder.style.display = 'none';
+    map = L.map('map', { zoomControl: true, attributionControl: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+    markerLayer = L.layerGroup().addTo(map);
+    return map;
+  }
+
+  function renderMap(origin, pois){
+    const m = ensureMap();
+    markerLayer.clearLayers();
+
+    const originIcon = L.divIcon({
+      className: '',
+      html: `<div style="width:16px;height:16px;border-radius:50%;background:#eaf2fa;border:3px solid #e8a33d;box-shadow:0 0 0 3px rgba(232,163,61,.35)"></div>`,
+      iconSize: [16,16], iconAnchor: [8,8]
+    });
+    L.marker([origin.lat, origin.lon], { icon: originIcon, zIndexOffset: 1000 })
+      .addTo(markerLayer)
+      .bindPopup(`<b>Search origin</b><br>${escapeHtml(origin.displayName || '')}`);
+
+    const shownPois = ['n','e','s','w'].flatMap(dir =>
+      pois.filter(p => p.quadrant === dir).sort((a,b)=>a.distanceKm-b.distanceKm).slice(0,10)
+    );
+
+    const bounds = [[origin.lat, origin.lon]];
+    shownPois.forEach(p => {
+      const color = CATS[p.category].color;
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="width:10px;height:10px;border-radius:3px;background:${color};border:1px solid #0f1d30"></div>`,
+        iconSize: [10,10], iconAnchor: [5,5]
+      });
+      L.marker([p.lat, p.lon], { icon })
+        .addTo(markerLayer)
+        .bindPopup(`<b>${escapeHtml(p.name)}</b><br>${CATS[p.category].label}<br>${formatDistance(p.distanceKm)} · ${p.compass16} ${Math.round(p.bearingDeg)}°`);
+      bounds.push([p.lat, p.lon]);
+    });
+
+    m.fitBounds(bounds, { padding: [30,30], maxZoom: 15 });
+    setTimeout(() => m.invalidateSize(), 150);
+  }
+
+  function activeCategories(){
+    return Array.from(filterChips).filter(c => c.classList.contains('active')).map(c => c.dataset.cat);
+  }
+
+  function applyFilterToLastResults(){
+    if (!lastOrigin) return;
+    const active = new Set(activeCategories());
+    const filtered = lastPois.filter(p => active.has(p.category));
+    renderLists(filtered);
+    if (map) renderMap(lastOrigin, filtered);
+  }
+
+  filterChips.forEach(chip => chip.addEventListener('click', () => {
+    chip.classList.toggle('active');
+    applyFilterToLastResults();
+  }));
+
+  if (location.protocol === 'file:'){
+    document.getElementById('fileWarning').style.display = 'block';
+  }
+
+  form.addEventListener('submit', async function(e){
+    e.preventDefault();
+    const address = input.value.trim();
+    if (!address){
+      setStatus('Please enter an address first.', true);
+      return;
+    }
+    const activeCats = activeCategories();
+    if (!activeCats.length){
+      setStatus('Select at least one landmark type.', true);
+      return;
+    }
+
+    setBusy(true);
+    setStatus('Locating address…');
+
+    try{
+      const origin = await geocode(address);
+      lastOrigin = origin;
+      setStatus('Address found. Searching for landmarks…');
+
+      const pois = await fetchLandmarks(origin.lat, origin.lon, activeCats, setStatus);
+      lastPois = pois;
+
+      renderLists(pois);
+      renderMap(origin, pois);
+
+      const counts = quadrantCounts(pois);
+      const short = ['n','e','s','w'].filter(d => counts[d] < 10);
+      const originLabel = origin.displayName.split(',').slice(0,3).join(',');
+      if (short.length){
+        setStatus(`Found: ${originLabel}. Fewer than 10 named landmarks exist to the ${short.map(d=>({n:'north',e:'east',s:'south',w:'west'}[d])).join(', ')} within 20 km.`);
+      } else {
+        setStatus(`Found: ${originLabel}. Showing the 10 nearest named landmarks in each direction.`);
+      }
+    } catch(err){
+      console.error(err);
+      setStatus(err.message || 'Something went wrong. Please try again.', true);
+    } finally {
+      setBusy(false);
+    }
+  });
+})();
+</script>
+</body>
+</html>
