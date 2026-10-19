@@ -11,7 +11,7 @@
 <style>
   :root{
     --bg: #e7e8e9;
-    --bg-deep: #e7e8e9;
+    --bg-deep: #637d59;
     --panel: #637d59;
     --panel-soft: #637d59;
     --line: #231f20;
@@ -53,7 +53,7 @@
   /* ---------- Header / Instrument panel ---------- */
   .masthead{
     border-bottom: 1px solid var(--line);
-    background: linear-gradient(180deg, var(--bg-deep), var(--bg));
+    background: var(--bg);
     padding: 22px clamp(14px, 4vw, 40px) 18px;
   }
   .masthead-inner{
@@ -465,12 +465,7 @@
   }
 
   // ---------- overpass ----------
-  const OVERPASS_ENDPOINTS = [
-    'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter',
-    'https://overpass.openstreetmap.ru/api/interpreter',
-    'https://overpass.private.coffee/api/interpreter'
-  ];
+  const OVERPASS_ENDPOINT = '/api/overpass';
   const ENDPOINT_TIMEOUT_MS = 22000;
 
   function fetchWithTimeout(url, options, timeoutMs){
@@ -492,28 +487,17 @@
   }
 
   async function runOverpass(query, onProgress){
-    let lastErr;
-    for (let i = 0; i < OVERPASS_ENDPOINTS.length; i++){
-      const endpoint = OVERPASS_ENDPOINTS[i];
-      const host = endpoint.replace(/^https?:\/\//, '').split('/')[0];
-      try{
-        if (onProgress) onProgress(`Querying landmark data (${host})…`);
-        const res = await fetchWithTimeout(endpoint, {
-          method: 'POST',
-          body: 'data=' + encodeURIComponent(query)
-        }, ENDPOINT_TIMEOUT_MS);
-        if (!res.ok) throw new Error(host + ' returned status ' + res.status);
-        return await res.json();
-      } catch(e){
-        lastErr = e && e.name === 'AbortError'
-          ? new Error(host + ' timed out')
-          : e;
-      }
+    if (onProgress) onProgress('Querying landmark data…');
+    const res = await fetchWithTimeout(OVERPASS_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: new URLSearchParams({ data: query })
+    }, ENDPOINT_TIMEOUT_MS * 3);
+    if (!res.ok){
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'Landmark service returned status ' + res.status + '.');
     }
-    if (location.protocol === 'file:'){
-      throw new Error('Could not reach any Overpass mirror. This page is open as a local file, which browsers block from calling these APIs — see the notice above.');
-    }
-    throw new Error((lastErr && lastErr.message ? lastErr.message + '. ' : '') + 'All Overpass mirrors failed — the service may be overloaded. Please try again in a moment.');
+    return await res.json();
   }
 
   function tagToCategory(tags){
