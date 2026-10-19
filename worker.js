@@ -50,25 +50,40 @@ export default {
 
     let lastError;
     for (const endpoint of OVERPASS_ENDPOINTS) {
-      try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
-          },
-          body: new URLSearchParams({ data: query }),
-          signal: AbortSignal.timeout(20000)
-        });
-        if (!response.ok) {
-          lastError = `${new URL(endpoint).hostname} returned status ${response.status}`;
-          continue;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              Accept: 'application/json',
+              'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+            },
+            body: new URLSearchParams({ data: query }),
+            signal: AbortSignal.timeout(20000)
+          });
+          if (!response.ok) {
+            lastError = `${new URL(endpoint).hostname} returned status ${response.status}`;
+            if (response.status !== 429 || attempt > 0) break;
+
+            const retryAfter = response.headers.get('Retry-After');
+            const retryAfterSeconds = Number(retryAfter);
+            const retryDelayMs = retryAfter == null
+              ? 1000
+              : Number.isFinite(retryAfterSeconds)
+                ? retryAfterSeconds * 1000
+                : Date.parse(retryAfter) - Date.now();
+            if (!Number.isFinite(retryDelayMs) || retryDelayMs < 0 || retryDelayMs > 1000) break;
+
+            await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+            continue;
+          }
+          return new Response(response.body, {
+            headers: { 'Content-Type': 'application/json; charset=utf-8' }
+          });
+        } catch (error) {
+          lastError = error instanceof Error ? error.message : 'Upstream request failed';
+          break;
         }
-        return new Response(response.body, {
-          headers: { 'Content-Type': 'application/json; charset=utf-8' }
-        });
-      } catch (error) {
-        lastError = error instanceof Error ? error.message : 'Upstream request failed';
       }
     }
 
