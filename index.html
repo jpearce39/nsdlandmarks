@@ -475,14 +475,14 @@
   }
 
   function buildQuery(lat, lon, radiusM, activeCats){
-    let clauses = '';
+    const tags = new Set();
     activeCats.forEach(catKey => {
-      CATS[catKey].query.forEach(tag => {
-        const [k, v] = tag.split('=');
-        clauses += `node["${k}"="${v}"](around:${radiusM},${lat},${lon});`;
-        clauses += `way["${k}"="${v}"](around:${radiusM},${lat},${lon});`;
-      });
+      CATS[catKey].query.forEach(tag => tags.add(tag));
     });
+    const clauses = [...tags].map(tag => {
+      const [k, v] = tag.split('=');
+      return `nwr["${k}"="${v}"]["name"](around:${radiusM},${lat},${lon});`;
+    }).join('');
     return `[out:json][timeout:25];(${clauses});out center tags;`;
   }
 
@@ -497,7 +497,9 @@
       const error = await res.json().catch(() => ({}));
       throw new Error(error.error || 'Landmark service returned status ' + res.status + '.');
     }
-    return await res.json();
+    const data = await res.json();
+    if (data.remark) throw new Error('Overpass returned incomplete results: ' + data.remark);
+    return data;
   }
 
   function tagToCategory(tags){

@@ -1,6 +1,6 @@
 const OVERPASS_ENDPOINTS = [
-  'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass-api.de/api/interpreter',
   'https://overpass.private.coffee/api/interpreter'
 ];
 const ALLOWED_TAGS = {
@@ -17,11 +17,11 @@ function isAllowedQuery(query) {
 
   const clausesText = query.slice(prefix.length, -suffix.length);
   const clauses = [...clausesText.matchAll(
-    /(node|way)\["(amenity|railway|shop|leisure)"="([a-z_]+)"\]\(around:(\d+),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\);/g
+    /nwr\["(amenity|railway|shop|leisure)"="([a-z_]+)"\]\["name"\]\(around:(\d+),(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\);/g
   )];
   if (!clauses.length || clauses.map(match => match[0]).join('') !== clausesText) return false;
 
-  return clauses.every(([, , key, value, radius, lat, lon]) =>
+  return clauses.every(([, key, value, radius, lat, lon]) =>
     ALLOWED_TAGS[key].includes(value) &&
     Number(radius) <= 20000 &&
     Math.abs(Number(lat)) <= 90 &&
@@ -48,8 +48,9 @@ export default {
       return Response.json({ error: 'Invalid Overpass query.' }, { status: 400 });
     }
 
-    let lastError;
+    const endpointErrors = new Map();
     for (const endpoint of OVERPASS_ENDPOINTS) {
+      const hostname = new URL(endpoint).hostname;
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const response = await fetch(endpoint, {
@@ -62,7 +63,7 @@ export default {
             signal: AbortSignal.timeout(20000)
           });
           if (!response.ok) {
-            lastError = `${new URL(endpoint).hostname} returned status ${response.status}`;
+            endpointErrors.set(hostname, `${hostname} returned status ${response.status}`);
             if (response.status !== 429 || attempt > 0) break;
 
             const retryAfter = response.headers.get('Retry-After');
@@ -81,14 +82,17 @@ export default {
             headers: { 'Content-Type': 'application/json; charset=utf-8' }
           });
         } catch (error) {
-          lastError = error instanceof Error ? error.message : 'Upstream request failed';
+          const message = error instanceof Error ? error.message : 'Upstream request failed';
+          endpointErrors.set(hostname, `${hostname}: ${message}`);
           break;
         }
       }
     }
 
     return Response.json(
-      { error: `${lastError || 'All Overpass mirrors failed'}. Please try again in a moment.` },
+      {
+        error: `${endpointErrors.size ? [...endpointErrors.values()].join('; ') : 'All Overpass mirrors failed'}. Please try again in a moment.`
+      },
       { status: 502 }
     );
   }
