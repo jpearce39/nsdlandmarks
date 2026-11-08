@@ -467,6 +467,7 @@
   // ---------- overpass ----------
   const OVERPASS_ENDPOINT = '/api/overpass';
   const ENDPOINT_TIMEOUT_MS = 22000;
+  const WORKER_TIMEOUT_MS = 240000;
 
   function fetchWithTimeout(url, options, timeoutMs){
     const controller = new AbortController();
@@ -492,7 +493,7 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
       body: new URLSearchParams({ data: query })
-    }, ENDPOINT_TIMEOUT_MS * 3);
+    }, WORKER_TIMEOUT_MS);
     if (!res.ok){
       const error = await res.json().catch(() => ({}));
       throw new Error(error.error || 'Landmark service returned status ' + res.status + '.');

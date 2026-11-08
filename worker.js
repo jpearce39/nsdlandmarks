@@ -3,12 +3,30 @@ const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.private.coffee/api/interpreter'
 ];
+const MIRROR_DELAY_MS = 2000;
+const DEFAULT_RETRY_DELAY_MS = 5000;
+const MIN_RETRY_DELAY_MS = 1000;
+const MAX_RETRY_DELAY_MS = 30000;
 const ALLOWED_TAGS = {
   amenity: ['school', 'place_of_worship'],
   railway: ['station'],
   shop: ['mall', 'supermarket', 'department_store'],
   leisure: ['park']
 };
+
+function getRetryDelay(response) {
+  const retryAfter = response.headers.get('Retry-After');
+  if (retryAfter == null) return DEFAULT_RETRY_DELAY_MS;
+
+  const value = retryAfter.trim();
+  const seconds = Number(value);
+  const delayMs = value && Number.isFinite(seconds)
+    ? seconds * 1000
+    : Date.parse(value) - Date.now();
+  if (!Number.isFinite(delayMs)) return DEFAULT_RETRY_DELAY_MS;
+  if (delayMs > MAX_RETRY_DELAY_MS) return null;
+  return Math.max(delayMs, MIN_RETRY_DELAY_MS);
+}
 
 function isAllowedQuery(query) {
   const prefix = '[out:json][timeout:25];(';
@@ -49,7 +67,10 @@ export default {
     }
 
     const endpointErrors = new Map();
-    for (const endpoint of OVERPASS_ENDPOINTS) {
+    for (const [endpointIndex, endpoint] of OVERPASS_ENDPOINTS.entries()) {
+      if (endpointIndex > 0) {
+        await new Promise(resolve => setTimeout(resolve, MIRROR_DELAY_MS));
+      }
       const hostname = new URL(endpoint).hostname;
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
@@ -66,14 +87,8 @@ export default {
             endpointErrors.set(hostname, `${hostname} returned status ${response.status}`);
             if (response.status !== 429 || attempt > 0) break;
 
-            const retryAfter = response.headers.get('Retry-After');
-            const retryAfterSeconds = Number(retryAfter);
-            const retryDelayMs = retryAfter == null
-              ? 1000
-              : Number.isFinite(retryAfterSeconds)
-                ? retryAfterSeconds * 1000
-                : Date.parse(retryAfter) - Date.now();
-            if (!Number.isFinite(retryDelayMs) || retryDelayMs < 0 || retryDelayMs > 1000) break;
+            const retryDelayMs = getRetryDelay(response);
+            if (retryDelayMs == null) break;
 
             await new Promise(resolve => setTimeout(resolve, retryDelayMs));
             continue;
